@@ -1,8 +1,19 @@
-CREATE TABLE IF NOT EXISTS `warns` (
-  `id` int(11) NOT NULL,
-  `user_id` varchar(20) NOT NULL,
-  `server_id` varchar(20) NOT NULL,
-  `moderator_id` varchar(20) NOT NULL,
-  `reason` varchar(255) NOT NULL,
-  `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP
+CREATE TABLE IF NOT EXISTS warns (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id TEXT NOT NULL,
+    server_id TEXT NOT NULL,
+    moderator_id TEXT NOT NULL,
+    reason TEXT NOT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS minecraft_servers (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    server_id TEXT NOT NULL,
+    channel_id TEXT NOT NULL,
+    mc_server_name TEXT NOT NULL,
+    mc_IP TEXT NOT NULL,
+    mc_port INTEGER NOT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(mc_server_name)
 );

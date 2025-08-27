@@ -13,6 +13,22 @@ class DatabaseManager:
     def __init__(self, *, connection: aiosqlite.Connection) -> None:
         self.connection = connection
 
+
+    async def add_minecraft_server(self, server_id: int,channel_id: int, mc_server_name: str, mc_IP: str, mc_port: int) -> None:
+        # Insert wiith "INSERT OR IGNORE" to avoid duplicates
+        await self.connection.execute(
+            """
+            INSERT OR IGNORE INTO minecraft_servers (server_id, channel_id, mc_server_name, mc_IP, mc_port) 
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            (server_id, channel_id, mc_server_name, mc_IP, mc_port)
+        )
+        await self.connection.commit()
+
+
+
+########################################
+
     async def add_warn(
         self, user_id: int, server_id: int, moderator_id: int, reason: str
     ) -> int:

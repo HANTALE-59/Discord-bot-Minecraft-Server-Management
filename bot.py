@@ -56,7 +56,8 @@ intents.message_content = True
 intents.presences = True
 """
 
-intents = discord.Intents.default()
+intents = discord.Intents().all()
+#intents = discord.Intents.default()
 
 """
 Uncomment this if you want to use prefix (normal) commands.
@@ -209,6 +210,7 @@ class DiscordBot(commands.Bot):
         if message.author == self.user or message.author.bot:
             return
         await self.process_commands(message)
+        print(message)
 
     async def on_command_completion(self, context: Context) -> None:
         """

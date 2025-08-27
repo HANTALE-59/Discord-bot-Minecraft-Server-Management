@@ -1,3 +1,17 @@
+NOT FINISHED YET!!!!!!!!!! (even barely started)
+
+This bot will allow you to use the brand new "Minecraft Server Management Protocol" in the java version snapshot 25w35a.
+
+TO-DO : almost everything
+
+
+Why do I use a discord bot template? So I don't waste to much time  
+
+
+Stay tuned
+
+
+
 # Python Discord Bot Template
 
 <p align="center">

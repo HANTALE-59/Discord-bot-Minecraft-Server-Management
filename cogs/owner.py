@@ -10,11 +10,24 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 from discord.ext.commands import Context
+import os
 
 
 class Owner(commands.Cog, name="owner"):
     def __init__(self, bot) -> None:
         self.bot = bot
+
+
+
+    async def cogs_autocomplete(self, ctx, current: str):
+        # List all Python files in the 'cogs' directory and create choices in one step
+        return [
+            app_commands.Choice(name=file[:-3], value=file[:-3])  # Remove '.py' extension
+            for file in os.listdir(f"{os.path.realpath(os.path.dirname(__file__))}")
+            if file.endswith(".py") and current.lower() in file.lower()  # Filter by current input
+        ][:25]  # Limit to 25 choices for autocomplete
+    
+
 
     @commands.command(
         name="sync",
@@ -93,34 +106,51 @@ class Owner(commands.Cog, name="owner"):
 
     @commands.hybrid_command(
         name="load",
-        description="Load a cog",
-    )
+        description="Load a cog")
     @app_commands.describe(cog="The name of the cog to load")
     @commands.is_owner()
+    @app_commands.allowed_installs(guilds=True, users=True)
+    @app_commands.allowed_contexts(guilds=True, dms=True, private_channels=True)
+    @app_commands.autocomplete(cog=cogs_autocomplete) 
     async def load(self, context: Context, cog: str) -> None:
         """
         The bot will load the given cog.
 
         :param context: The hybrid command context.
         :param cog: The name of the cog to load.
+        cogs_directory = f"{os.path.realpath(os.path.dirname(__file__))}"
+        available_cogs = [file[:-3] for file in os.listdir(cogs_directory) if file.endswith(".py")]
+
+        if cog in available_cogs:
+            # Load the cog if it exists
+            try:
+                await self.bot.load_extension(f"cogs.{cog}")
+                await context.send(f"Successfully loaded cog: {cog}")
+            except Exception as e:
+                await context.send(f"Failed to load cog: {e}")
+        else:
+            await context.send(f"Cog '{cog}' not found.")
         """
+
         try:
             await self.bot.load_extension(f"cogs.{cog}")
         except Exception:
             embed = discord.Embed(
-                description=f"Could not load the `{cog}` cog.", color=0xE02B2B
+                description=f"Could not load the `{cog}` cog.", color=0xE02B2B#color=Color.FALSE
             )
-            await context.send(embed=embed)
+            await context.send(embed=embed,ephemeral=True)
             return
         embed = discord.Embed(
-            description=f"Successfully loaded the `{cog}` cog.", color=0xBEBEFE
+            description=f"Successfully loaded the `{cog}` cog.", color=0xBEBEFE#color=Color.TRUE
         )
-        await context.send(embed=embed)
+        await context.send(embed=embed,ephemeral=True)
 
     @commands.hybrid_command(
         name="unload",
-        description="Unloads a cog.",
-    )
+        description="Unloads a cog.")
+    @app_commands.allowed_installs(guilds=True, users=True)
+    @app_commands.allowed_contexts(guilds=True, dms=True, private_channels=True)
+    @app_commands.autocomplete(cog=cogs_autocomplete) 
     @app_commands.describe(cog="The name of the cog to unload")
     @commands.is_owner()
     async def unload(self, context: Context, cog: str) -> None:
@@ -134,20 +164,22 @@ class Owner(commands.Cog, name="owner"):
             await self.bot.unload_extension(f"cogs.{cog}")
         except Exception:
             embed = discord.Embed(
-                description=f"Could not unload the `{cog}` cog.", color=0xE02B2B
+                description=f"Could not unload the `{cog}` cog.", color=0xE02B2B#color=Color.FALSE
             )
-            await context.send(embed=embed)
+            await context.send(embed=embed,ephemeral=True)
             return
         embed = discord.Embed(
-            description=f"Successfully unloaded the `{cog}` cog.", color=0xBEBEFE
+            description=f"Successfully unloaded the `{cog}` cog.", color=0xBEBEFE#color=Color.TRUE
         )
-        await context.send(embed=embed)
+        await context.send(embed=embed,ephemeral=True)
 
     @commands.hybrid_command(
         name="reload",
-        description="Reloads a cog.",
-    )
+        description="Reloads a cog.")
+    @app_commands.allowed_installs(guilds=True, users=True)
+    @app_commands.allowed_contexts(guilds=True, dms=True, private_channels=True)
     @app_commands.describe(cog="The name of the cog to reload")
+    @app_commands.autocomplete(cog=cogs_autocomplete) 
     @commands.is_owner()
     async def reload(self, context: Context, cog: str) -> None:
         """
@@ -160,14 +192,15 @@ class Owner(commands.Cog, name="owner"):
             await self.bot.reload_extension(f"cogs.{cog}")
         except Exception:
             embed = discord.Embed(
-                description=f"Could not reload the `{cog}` cog.", color=0xE02B2B
+                description=f"Could not reload the `{cog}` cog.", color=0xE02B2B#color=Color.FALSE
             )
-            await context.send(embed=embed)
+            await context.send(embed=embed,ephemeral=True)
             return
         embed = discord.Embed(
-            description=f"Successfully reloaded the `{cog}` cog.", color=0xBEBEFE
+            description=f"Successfully reloaded the `{cog}` cog.", color=0xBEBEFE#color=Color.TRUE
         )
-        await context.send(embed=embed)
+        await context.send(embed=embed,ephemeral=True)
+
 
     @commands.hybrid_command(
         name="shutdown",

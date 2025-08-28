@@ -1,14 +1,51 @@
-NOT FINISHED YET!!!!!!!!!! (even barely started)
 
-This bot will allow you to use the brand new "Minecraft Server Management Protocol" in the java version snapshot 25w35a.
+# Discord Bot: Minecraft Server Management
+⚠ **Work in Progress** ⚠
+This bot uses the new **Minecraft Server Management Protocol** (Java Snapshot 25w35a)
+---
+## Quickstart Guide
+1. **Set up your bot** using the template instructions (starting at [How to Download It](
+2. When your bot is online, run the command:
+"prefix sync global"
+Replace `prefix` with your chosen bot prefix (e.g., `$sync global`). Then reload Discord
+3. Edit your Minecraft server's `server.properties` file and enable the management protoc
+management-server-enabled=true
+The default port `25585` is usually fine.
+4. Add your Minecraft server configuration to the bot via Discord:
+/mc add [name] IP Port
+- **name**: a friendly config name
+- **IP**: your Minecraft server IP (default: localhost)
+- **Port**: MSMP port (default: 25585)
+5. Link the bot with your running Minecraft server:
+/mc start [name]
+Avoi ça dans un bloc code comme ça je peux
+copier avec le smarkdowns et la mise en forme et
+tout
+This activates real-time event listening and notifications for that server in the Discord
+6. Use commands like `/mc kick [player]`, `/mc ops`, `/mc stop` to manage your server rem
+---
+## Features
+- Fully supports Minecraft Server Management Protocol commands and events.
+- Automatic notifications for player joins/leaves, bans, allowlist changes, server status
+- Add/remove servers dynamically.
+- Easy slash command interface with autocomplete.
+- Manage allowlists, bans, operators, gamerules, and server settings.
+---
+## Support & Community
+For help or questions:
+- Join the official Discord server: [Discord Invite](https://discord.gg/xj6y5ZaTMr)
+- Open issues on the GitHub repo: https://github.com/HANTALE-59/Discord-bot-Minecraft-Ser
+---
+## Thanks
+To kkrypt0nn for his amazing discord.py template wich allow me to save a lot of time. [template-link](https://github.com/kkrypt0nn/Python-Discord-Bot-Template)
 
-TO-DO : almost everything
 
 
-Why do I use a discord bot template? So I don't waste to much time  
 
 
-Stay tuned
+
+
+
 
 
 

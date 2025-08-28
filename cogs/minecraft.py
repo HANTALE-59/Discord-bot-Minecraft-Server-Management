@@ -9,58 +9,11 @@ import asyncio
 #from assets.data import Data
 import requests
 from mojang import API as MOJANG_API
+
 class Minecraft(commands.Cog, name="minecraft"):
-    def __init__(self, bot) -> None:
+    def __init__(self, bot):
         self.bot = bot
-        
-    """ //Useless now but we never know...
-
-    async def listen_to_mc_server(self, mc_ip: str, mc_port: int, channel_id: int, server_name: str):
-        ws_url = f"ws://{mc_ip}:{mc_port}"
-        try:
-            channel = self.bot.get_channel(channel_id)
-            if channel is None:
-                channel = await self.bot.fetch_channel(channel_id)
-
-            async with websockets.connect(ws_url) as websocket:
-                # Découverte de l'API
-                await websocket.send(json.dumps({"id": 1, "jsonrpc": "2.0", "method": "rpc.discover"}))
-                discover_response = await websocket.recv()
-                print(f"Découverte MSMP pour {server_name}: {discover_response}")
-
-                while True:
-                    message_raw = await websocket.recv()
-                    message = json.loads(message_raw)
-                    # Affiche toutes les notifications brutes
-                    print(f"MSMP raw message: {message}")
-
-                    # Notification joueur rejoint
-                    if message.get("method") == "notification:players/joined":
-                        params = message.get("params", [{}])[0]
-                        player_name = params.get("name", "Unknown")
-                        if channel:
-                            await channel.send(
-                                f"✅ Player`{player_name}` just joined `{server_name}`!"
-                            )
-
-
-                    # Notification joueur quitte
-                    if message.get("method") == "notification:players/left":
-                        params = message.get("params", [{}])[0]
-                        player_name = params.get("name", "Unknown")
-                        if channel:
-                            await channel.send(
-                                f"✅ Player`{player_name}` just left `{server_name}`!"
-                            )
-
-
-        except Exception as e:
-            print(f"Erreur de connexion au serveur {server_name}: {e}")
-            if channel:
-                await channel.send(f"❌ Impossible de se connecter au serveur `{server_name}`: `{e}`")
-
-
-
+        self.listeners = {}
 
 
 
@@ -104,126 +57,7 @@ class Minecraft(commands.Cog, name="minecraft"):
             await ctx.send('Server name already taken, choose a new one')
             return
         await ctx.send('Good')
-
-
-    @servers.command(
-        name="start",
-        description="Start using your server protocol"
-    )
-    @app_commands.autocomplete(name=mc_serv_name_autocomplete)
-    @app_commands.describe(name="Choose the server you want to link with")
-    async def start(self, ctx, name: str):
-        await ctx.defer()
-
-        # Récupérer les infos du serveur
-        server_info = await self.bot.database.get_mc_server_info(name)
-        if not server_info:
-            await ctx.send("❌ Aucun serveur trouvé avec ce nom.")
-            return
-
-        server_id, channel_id, mc_ip, mc_port = server_info
-
-        # Lancer la task d'écoute en arrière-plan
-        asyncio.create_task(
-            self.listen_to_mc_server(mc_ip, mc_port, channel_id, name)
-        )
-
-        await ctx.send(f"✅ Écoute activée pour le serveur `{name}` ({mc_ip}:{mc_port})")
-
-
-
-
-    @servers.command(
-        name="stop",
-        description="Stop a Minecraft server using the MSMP protocol"
-    )
-    @app_commands.autocomplete(name=mc_serv_name_autocomplete)
-    @app_commands.describe(name="Choose the server you want to stop")
-    async def stop(self, ctx, name: str):
-        await ctx.defer()
-
-        # Récupérer les infos du serveur
-        server_info = await self.bot.database.get_mc_server_info(name)
-        if not server_info:
-            await ctx.send("❌ Aucun serveur trouvé avec ce nom.")
-            return
-
-        server_id, channel_id, mc_ip, mc_port = server_info
-        ws_url = f"ws://{mc_ip}:{mc_port}"
-
-        try:
-            async with websockets.connect(ws_url) as websocket:
-                # Envoyer la commande stop
-                request = {
-                    "id": 1,
-                    "jsonrpc": "2.0",
-                    "method": "minecraft:server/stop",
-                    "params": []
-                }
-                await websocket.send(json.dumps(request))
-
-                # Essayer de recevoir la réponse (il se peut que le serveur ferme avant)
-                try:
-                    response_raw = await websocket.recv()
-                    response = json.loads(response_raw)
-                    await ctx.send(f"🛑 Le serveur `{name}` a été stoppé avec succès.")
-                except websockets.ConnectionClosedOK:
-                    # Le serveur a fermé le WS normalement
-                    await ctx.send(f"🛑 Le serveur `{name}` a été stoppé (WebSocket fermé).")
-
-        finally:
-            await websocket.close()
-
-    @servers.command(
-        name="motd",
-        description="Change the Minecraft server's MOTD"
-    )
-    @app_commands.autocomplete(name=mc_serv_name_autocomplete)
-    @app_commands.describe(
-        name="Server name",
-        motd="New message of the day for the server"
-    )
-    async def motd(self, ctx, name: str, *, motd: str):
-        await ctx.defer()
-
-        # Récupérer les infos du serveur
-        server_info = await self.bot.database.get_mc_server_info(name)
-        if not server_info:
-            await ctx.send(f"❌ Aucun serveur trouvé avec le nom `{name}`.")
-            return
-
-        server_id, channel_id, mc_ip, mc_port = server_info
-        ws_url = f"ws://{mc_ip}:{mc_port}"
-
-        try:
-            async with websockets.connect(ws_url) as websocket:
-                # Envoyer la commande pour changer le MOTD
-                request = {
-                    "id": 1,
-                    "jsonrpc": "2.0",
-                    "method": "minecraft:serversettings/motd/set",
-                    "params": [motd]  # <-- juste la chaîne
-                }
-                await websocket.send(json.dumps(request))
-
-                # Recevoir la réponse
-                response_raw = await websocket.recv()
-                response = json.loads(response_raw)
-
-                if "result" in response:
-                    await ctx.send(f"✅ MOTD changé pour `{name}` : `{motd}`")
-                else:
-                    await ctx.send(f"⚠️ Impossible de changer le MOTD :\n```json\n{json.dumps(response, indent=2)}```")
-
-        except Exception as e:
-            await ctx.send(f"❌ Erreur lors de la connexion au serveur `{name}` : `{e}`")
-
-
-
-    """
-
 ######################################
-
 
 
 

@@ -15,5 +15,5 @@ CREATE TABLE IF NOT EXISTS minecraft_servers (
     mc_IP TEXT NOT NULL,
     mc_port INTEGER NOT NULL,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE(mc_server_name)
+    UNIQUE(mc_server_name, channel_id)
 );

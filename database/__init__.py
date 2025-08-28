@@ -40,15 +40,67 @@ class DatabaseManager:
         ) as cursor:
             return await cursor.fetchall()
 
-    async def get_mc_server_info(self, mc_server_name: str):
-        """Retourne la config complète d’un serveur à partir de son nom"""
+    async def get_all_mc_servers_full(self):
         async with self.connection.execute(
-            "SELECT server_id, channel_id, mc_IP, mc_port FROM minecraft_servers WHERE mc_server_name = ?",
-            (mc_server_name,)
+            "SELECT mc_server_name, mc_IP, mc_port, channel_id FROM minecraft_servers"
         ) as cursor:
+            return await cursor.fetchall()
+
+    async def get_mc_server_info(self, mc_server_name: str = None, channel_id: int = None):
+        if mc_server_name is not None:
+            query = "SELECT server_id, channel_id, mc_IP, mc_port FROM minecraft_servers WHERE mc_server_name = ?"
+            params = (mc_server_name,)
+        elif channel_id is not None:
+            query = "SELECT server_id, channel_id, mc_IP, mc_port FROM minecraft_servers WHERE channel_id = ?"
+            params = (channel_id,)
+        else:
+            return None
+
+        async with self.connection.execute(query, params) as cursor:
             return await cursor.fetchone()
 
-########################################
+
+    async def remove_minecraft_server(self, server_id: int, mc_server_name: str) -> bool:
+        """Supprime un serveur Minecraft d’un serveur Discord"""
+        async with self.connection.execute(
+            "DELETE FROM minecraft_servers WHERE server_id = ? AND mc_server_name = ?",
+            (server_id, mc_server_name)
+        ) as cursor:
+            await self.connection.commit()
+            return cursor.rowcount > 0
+
+    async def edit_minecraft_server(
+        self, 
+        server_id: int, 
+        mc_server_name: str, 
+        new_ip: str = None, 
+        new_port: int = None
+    ) -> bool:
+        """Modifie l'IP et/ou le port d’un serveur"""
+        if not new_ip and not new_port:
+            return False  # Rien à changer
+
+        # Construire la requête dynamiquement
+        updates = []
+        params = []
+        if new_ip:
+            updates.append("mc_IP = ?")
+            params.append(new_ip)
+        if new_port:
+            updates.append("mc_port = ?")
+            params.append(new_port)
+        params.extend([server_id, mc_server_name])
+
+        query = f"""
+            UPDATE minecraft_servers
+            SET {", ".join(updates)}
+            WHERE server_id = ? AND mc_server_name = ?
+        """
+        async with self.connection.execute(query, params) as cursor:
+            await self.connection.commit()
+            return cursor.rowcount > 0
+
+#####################################
 
     async def add_warn(
         self, user_id: int, server_id: int, moderator_id: int, reason: str

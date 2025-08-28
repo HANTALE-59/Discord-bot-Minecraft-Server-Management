@@ -1,31 +1,52 @@
-"""
-Copyright © Krypton 2019-Present - https://github.com/kkrypt0nn (https://krypton.ninja)
-Description:
-🐍 A simple template to start to code your own and personalized Discord bot in Python
-
-Version: 6.3.0
-"""
-
 import aiosqlite
-
 
 class DatabaseManager:
     def __init__(self, *, connection: aiosqlite.Connection) -> None:
         self.connection = connection
 
+    async def add_minecraft_server(
+        self, 
+        server_id: int, 
+        channel_id: int, 
+        mc_server_name: str, 
+        mc_IP: str, 
+        mc_port: int
+    ) -> bool:
+        # Vérifier si un serveur existe déjà avec ce nom dans le même serveur Discord
+        async with self.connection.execute(
+            "SELECT 1 FROM minecraft_servers WHERE mc_server_name = ? AND server_id = ?",
+            (mc_server_name, server_id)
+        ) as cursor:
+            row = await cursor.fetchone()
 
-    async def add_minecraft_server(self, server_id: int,channel_id: int, mc_server_name: str, mc_IP: str, mc_port: int) -> None:
-        # Insert wiith "INSERT OR IGNORE" to avoid duplicates
+        if row is not None:
+            return False  # Déjà existant
+
+        # Sinon → insérer
         await self.connection.execute(
             """
-            INSERT OR IGNORE INTO minecraft_servers (server_id, channel_id, mc_server_name, mc_IP, mc_port) 
+            INSERT INTO minecraft_servers (server_id, channel_id, mc_server_name, mc_IP, mc_port) 
             VALUES (?, ?, ?, ?, ?)
             """,
             (server_id, channel_id, mc_server_name, mc_IP, mc_port)
         )
         await self.connection.commit()
+        return True
 
+    async def get_all_mc_servers(self):
+        """Retourne la liste des noms de serveurs enregistrés"""
+        async with self.connection.execute(
+            "SELECT DISTINCT mc_server_name FROM minecraft_servers"
+        ) as cursor:
+            return await cursor.fetchall()
 
+    async def get_mc_server_info(self, mc_server_name: str):
+        """Retourne la config complète d’un serveur à partir de son nom"""
+        async with self.connection.execute(
+            "SELECT server_id, channel_id, mc_IP, mc_port FROM minecraft_servers WHERE mc_server_name = ?",
+            (mc_server_name,)
+        ) as cursor:
+            return await cursor.fetchone()
 
 ########################################
 

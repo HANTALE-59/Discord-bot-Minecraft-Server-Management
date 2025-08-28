@@ -210,7 +210,7 @@ class DiscordBot(commands.Bot):
         if message.author == self.user or message.author.bot:
             return
         await self.process_commands(message)
-        print(message)
+        print(message.content)
 
     async def on_command_completion(self, context: Context) -> None:
         """

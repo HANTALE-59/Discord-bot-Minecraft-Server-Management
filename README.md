@@ -33,8 +33,8 @@ This activates real-time event listening and notifications for that server in th
 ---
 ## Support & Community
 For help or questions:
-- Join the official Discord server: [Discord Invite](https://discord.gg/xj6y5ZaTMr)
-- Open issues on the GitHub repo: https://github.com/HANTALE-59/Discord-bot-Minecraft-Ser
+- Find meon discord: Unrectified2
+- Open issues on the GitHub repo: https://github.com/HANTALE-59/Discord-bot-Minecraft-Server-Management
 ---
 ## Thanks
 To kkrypt0nn for his amazing discord.py template wich allow me to save a lot of time. [template-link](https://github.com/kkrypt0nn/Python-Discord-Bot-Template)

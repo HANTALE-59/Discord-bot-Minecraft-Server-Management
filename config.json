@@ -1,0 +1,18 @@
+{
+  "notifications": {
+    "players_joined": true,
+    "players_left": true,
+    "bans_added": true,
+    "bans_removed": true,
+    "allowlist_added": false,
+    "allowlist_removed": false,
+    "operators_added": true,
+    "operators_removed": true,
+    "server_started": true,
+    "server_stopping": true,
+    "server_saving": false,
+    "server_saved": true,
+    "server_status": true, 
+    "gamerules_updated": true
+  }
+}

@@ -11,7 +11,7 @@
     "server_started": true,
     "server_stopping": true,
     "server_saving": false,
-    "server_saved": true,
+    "server_saved": false,
     "server_status": true, 
     "gamerules_updated": true
   }

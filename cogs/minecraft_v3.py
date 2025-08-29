@@ -48,7 +48,7 @@ class MinecraftManager(commands.Cog, name="minecraft_v2"):
             return {"error": str(e)}
 
 
-    @tasks.loop(seconds=40)
+    @tasks.loop(seconds=30)
     async def monitor_servers(self):
         await self.bot.wait_until_ready()
         all_servers = await self.bot.database.get_all_mc_servers_full()  # returns [(name, ip, port, channel_id), ...]
@@ -75,8 +75,23 @@ class MinecraftManager(commands.Cog, name="minecraft_v2"):
         self.monitor_servers.start()
 
     async def cog_unload(self):
-        # Stop the task when cog unloads
+        # Stop the monitor loop
         self.monitor_servers.cancel()
+
+        # Cancel all listeners
+        for name, task in list(self.listeners.items()):
+            if not task.done():
+                task.cancel()
+                try:
+                    await task
+                except asyncio.CancelledError:
+                    pass
+            print(f"❌ Closed listener for server {name}")
+            self.active_servers.discard(name)
+
+        
+        self.listeners.clear()
+        self.active_servers.clear()
 
 
     async def resolve_server(self, ctx, name: Optional[str] = None):
@@ -415,7 +430,7 @@ class MinecraftManager(commands.Cog, name="minecraft_v2"):
         server = await self.resolve_server(ctx, name)
         if not server:
             return
-        ip, port, name = server
+        ip, port, channel_id, name = server
         self.listeners[name] = asyncio.create_task(self.listen_to_mc_server(ip, port, channel_id, name))
         self.active_servers.add(name)  # Mark as active
         await ctx.send(f"🎧 Listening for events from `{name}` ({ip}:{port})")
@@ -504,6 +519,330 @@ class MinecraftManager(commands.Cog, name="minecraft_v2"):
             await ctx.send(f"⚠️ Error fetching server status: `{resp}`")
 
 
+    @mc.command(
+        name="server_properties",
+        description="Modifier les propriétés d'un serveur Minecraft (fichier server.properties)"
+    )
+    @app_commands.autocomplete(name=mc_serv_name_autocomplete)
+    @app_commands.describe(
+        accept_transfers="Autoriser les transferts inter-serveurs",
+        allow_flight="Autoriser le vol (utile pour mods/plugins)",
+        autosave="Activer la sauvegarde automatique",
+        difficulty="Difficulté du serveur",
+        entity_broadcast_range="Distance max (blocs) pour la visibilité des entités",
+        enforce_allowlist="Forcer l'utilisation de la whitelist",
+        force_game_mode="Forcer le mode de jeu au spawn",
+        gamemode="Mode de jeu par défaut",
+        hide_online_players="Cacher la liste des joueurs en ligne",
+        maxplayers="Nombre maximum de joueurs autorisés",
+        motd="Message of the Day du serveur",
+        name="Nom du serveur (autocomplete)",
+        operator_user_permission_level="Niveau de permission par défaut des opérateurs",
+        pause_when_empty_seconds="Mettre le serveur en pause après X secondes sans joueurs",
+        player_idle_timeout="Kick un joueur après X minutes d'inactivité",
+        simulation_distance="Distance de simulation (chunks actifs)",
+        spawn_protection_radius="Rayon de protection du spawn",
+        status_heartbeat_interval="Intervalle (sec) entre envois de heartbeat",
+        status_replies="Autoriser les réponses au ping de statut",
+        use_allowlist="Activer la whitelist",
+        viewdistance="Distance de rendu (chunks)"
+    )
+    async def server_properties(
+        self,
+        ctx: Context,
+        accept_transfers: Optional[bool] = None,
+        allow_flight: Optional[bool] = None,
+        autosave: Optional[bool] = None,
+        difficulty: Literal['peaceful','easy','normal','hard'] = None,
+        entity_broadcast_range: Optional[int] = None,
+        enforce_allowlist: Optional[bool] = None,
+        force_game_mode: Optional[bool] = None,
+        gamemode: Literal['survival','creative','spectator','adventure'] = None,
+        hide_online_players: Optional[bool] = None,
+        maxplayers: Optional[int] = None,
+        motd: Optional[str] = None,
+        name: Optional[str] = None,
+        operator_user_permission_level: Literal[1,2,3,4] = None,
+        pause_when_empty_seconds: Optional[int] = None,
+        player_idle_timeout: Optional[int] = None,
+        simulation_distance: Optional[int] = None,
+        spawn_protection_radius: Optional[int] = None,
+        status_heartbeat_interval: Optional[int] = None,
+        status_replies: Optional[bool] = None,
+        use_allowlist: Optional[bool] = None,
+        viewdistance: Optional[int] = None
+    ):
+        await ctx.defer()
+
+        # Récupérer le serveur
+        server = await self.resolve_server(ctx, name)
+        if not server:
+            return
+        ip, port, srv_name = server
+
+        embed = discord.Embed(title=f"🔧 Modifications server.properties ({srv_name})")
+        numb_changes = 0
+
+        # Table de correspondance: paramètre → méthode RPC + message
+        params_map = [
+            (accept_transfers, "minecraft:serversettings/accept_transfers/set", "accept_transfers", "Enable server-to-server player transfers", "{}"),
+            (allow_flight, "minecraft:serversettings/allow_flight/set", "allow_flight", "Allow flight in Survival mode", "{}"),
+            (autosave, "minecraft:serversettings/autosave/set", "autosave", "Enable world autosaving", "{}"),
+            (difficulty, "minecraft:serversettings/difficulty/set", "difficulty", "Server difficulty (peaceful, easy, normal, hard)", "{}"),
+            (entity_broadcast_range, "minecraft:serversettings/entity_broadcast_range/set", "entity_broadcast_range", "Percentage for entity broadcast range", "{}"),
+            (enforce_allowlist, "minecraft:serversettings/enforce_allowlist/set", "enforce_allowlist", "Kick immediately when removed from allowlist", "{}"),
+            (force_game_mode, "minecraft:serversettings/force_game_mode/set", "force_game_mode", "Force default game mode for all players", "{}"),
+            (gamemode, "minecraft:serversettings/game_mode/set", "gamemode", "Default game mode (survival, creative, etc.)", "{}"),
+            (hide_online_players, "minecraft:serversettings/hide_online_players/set", "hide_online_players", "Hide online players from status queries", "{}"),
+            (maxplayers, "minecraft:serversettings/max_players/set", "maxplayers", "Maximum number of players allowed", "{}"),
+            (motd, "minecraft:serversettings/motd/set", "motd", "Server Message of the Day", "{}"),
+            (operator_user_permission_level, "minecraft:serversettings/operator_user_permission_level/set", "operator_user_permission_level", "Default permission level for operators (1-4)", "{}"),
+            (pause_when_empty_seconds, "minecraft:serversettings/pause_when_empty_seconds/set", "pause_when_empty_seconds", "Seconds before server pauses when empty", "{}"),
+            (player_idle_timeout, "minecraft:serversettings/player_idle_timeout/set", "player_idle_timeout", "Seconds before idle players are kicked", "{}"),
+            (simulation_distance, "minecraft:serversettings/simulation_distance/set", "simulation_distance", "Simulation distance in chunks", "{}"),
+            (spawn_protection_radius, "minecraft:serversettings/spawn_protection_radius/set", "spawn_protection_radius", "Spawn protection radius (blocks)", "{}"),
+            (status_heartbeat_interval, "minecraft:serversettings/status_heartbeat_interval/set", "status_heartbeat_interval", "Heartbeat interval in seconds", "{}"),
+            (status_replies, "minecraft:serversettings/status_replies/set", "status_replies", "Respond to connection status requests", "{}"),
+            (use_allowlist, "minecraft:serversettings/use_allowlist/set", "use_allowlist", "Enable the whitelist/allowlist", "{}"),
+            (viewdistance, "minecraft:serversettings/view_distance/set", "viewdistance", "View/render distance (chunks)", "{}"),
+        ]
+
+
+        # On applique chaque paramètre si non None
+        for value, method, label, desc, valfmt in params_map:
+            if value is not None:
+                resp = await self.send_rpc_request(ip, port, method, [value])
+                print(resp)
+                displayval = value
+                # Pour le timeout inactivité, afficher en mn pour l'humain
+                if label == "player_idle_timeout" and isinstance(value, int):
+                    displayval = f"{value // 60} min" if value >= 60 else f"{value} s"
+                embed.add_field(
+                    inline=False,
+                    name=f"{label}",
+                    value=self.parse_rpc_response(
+                        resp, 
+                        success_msg=f"{desc} ⇒ `{displayval}`"
+                    )
+                )
+                
+                numb_changes += 1
+
+
+        if numb_changes == 0:
+            embed.description = "⚠️ Aucune modification appliquée."
+        else:
+            embed.set_footer(text=f"Nombre de changements appliqués : {numb_changes}")
+
+        await ctx.send(embed=embed)
+
+    
+    """
+    @mc.command(name="server_propreties", description="Edit serveur propreties (from the file server.propreties)")
+    @app_commands.autocomplete(name=mc_serv_name_autocomplete)
+    async def server_propreties(
+        self, 
+        ctx, 
+        *,
+        motd : Optional[str] = None, 
+        difficulty : Literal['peacful','easy','medium','hard'] = None,
+        gamemode : Literal['survival','creative','spectator','adventure'] = None,
+        force_game_mode: Optional[bool] = None,
+        autosave : Optional[bool] = None,
+        maxplayers : Optional[int] = None,
+        viewdistance : Optional[int] = None,
+
+        enforce_allowlist: Optional[bool] = None,
+        use_allowlist: Optional[bool] = None,
+        pause_when_empty_seconds: Optional[int] = None,
+        player_idle_timeout: Optional[int] = None,
+        allow_flight: Optional[bool] = None,
+        spawn_protection_radius: Optional[int] = None,
+        simulation_distance : Optional[int] = None,
+        spawn_protection_radius: Optional[int] = None,
+        force_game_mode: Optional[bool] = None,
+        accept_transfers: Optional[bool] = None,
+        status_heartbeat_interval: Optional[int] = None,
+        operator_user_permission_level: Literal[1,2,3,4] = None,
+        hide_online_players: Optional[bool] = None,
+        status_replies: Optional[bool] = None,
+        entity_broadcast_range: Optional[int] = None,
+
+        name : Optional[str] = None
+    ):
+        await ctx.defer()
+
+        server = await self.resolve_server(ctx, name)
+        if not server:
+            return
+        ip, port, name = server
+        embed = discord.Embed(title="server.propreties changes")
+        numb_changes = 0
+        if motd :
+            resp = await self.send_rpc_request(ip, port, "minecraft:serversettings/motd/set", [motd])
+            embed.add_field(inline=False,name="",value=self.parse_rpc_response(resp, success_msg=f"MOTD changed to `{motd}`"))
+            numb_changes += 1
+        if difficulty :
+            resp = await self.send_rpc_request(ip, port, "minecraft:serversettings/difficulty/set", [difficulty])
+            embed.add_field(inline=False,name="",value=self.parse_rpc_response(resp, success_msg=f"difficulty set to `{difficulty}`"))
+            numb_changes += 1
+        if gamemode :
+            resp = await self.send_rpc_request(ip, port, "minecraft:serversettings/game_mode/set", [gamemode])
+            embed.add_field(inline=False,name="",value=self.parse_rpc_response(resp, success_msg=f"gamemode set to `{gamemode}`"))
+            numb_changes += 1
+        if autosave :
+            resp = await self.send_rpc_request(ip, port, "minecraft:serversettings/autosave/set", [autosave])
+            embed.add_field(inline=False,name="",value=self.parse_rpc_response(resp, success_msg=f"autosave set to `{autosave}`"))
+            numb_changes += 1
+        if maxplayers :
+            resp = await self.send_rpc_request(ip, port,"minecraft:serversettings/max_players/set",[maxplayers])
+            embed.add_field(inline=False,name="",value=self.parse_rpc_response(resp, success_msg=f"maxplayers set to `{maxplayers}`"))
+            numb_changes += 1
+        if viewdistance :
+            resp = await self.send_rpc_request(ip, port, "minecraft:serversettings/view_distance/set", [viewdistance])
+            embed.add_field(inline=False,name="",value=self.parse_rpc_response(resp, success_msg=f"maxdistance set to `{viewdistance}`"))
+            numb_changes += 1
+        # Accept transfers
+        if accept_transfers is not None:
+            resp = await self.send_rpc_request(ip, port, "minecraft:serversettings/accept_transfers/set", [accept_transfers])
+            embed.add_field(inline=False, name="", value=self.parse_rpc_response(resp, success_msg=f"accept_transfers set to `{accept_transfers}`"))
+            numb_changes += 1
+
+        # Allow flight
+        if allow_flight is not None:
+            resp = await self.send_rpc_request(ip, port, "minecraft:serversettings/allow_flight/set", [allow_flight])
+            embed.add_field(inline=False, name="", value=self.parse_rpc_response(resp, success_msg=f"allow_flight set to `{allow_flight}`"))
+            numb_changes += 1
+
+        # Autosave déjà présent plus haut
+
+        # Enforce allowlist
+        if enforce_allowlist is not None:
+            resp = await self.send_rpc_request(ip, port, "minecraft:serversettings/enforce_allowlist/set", [enforce_allowlist])
+            embed.add_field(inline=False, name="", value=self.parse_rpc_response(resp, success_msg=f"enforce_allowlist set to `{enforce_allowlist}`"))
+            numb_changes += 1
+
+        # Force game mode
+        if force_game_mode is not None:
+            resp = await self.send_rpc_request(ip, port, "minecraft:serversettings/force_game_mode/set", [force_game_mode])
+            embed.add_field(inline=False, name="", value=self.parse_rpc_response(resp, success_msg=f"force_game_mode set to `{force_game_mode}`"))
+            numb_changes += 1
+
+        # Game mode déjà présent plus haut
+
+        # Hide online players
+        if hide_online_players is not None:
+            resp = await self.send_rpc_request(ip, port, "minecraft:serversettings/hide_online_players/set", [hide_online_players])
+            embed.add_field(inline=False, name="", value=self.parse_rpc_response(resp, success_msg=f"hide_online_players set to `{hide_online_players}`"))
+            numb_changes += 1
+
+        # Max players déjà présent plus haut
+
+        # MOTD déjà présent plus haut
+
+        # Operator user permission level
+        if operator_user_permission_level is not None:
+            resp = await self.send_rpc_request(
+                ip, port, "minecraft:serversettings/operator_user_permission_level/set", [operator_user_permission_level])
+            embed.add_field(inline=False, name="", value=self.parse_rpc_response(resp, success_msg=f"operator_user_permission_level set to `{operator_user_permission_level}`"))
+            numb_changes += 1
+
+        # Pause when empty seconds
+        if pause_when_empty_seconds is not None:
+            resp = await self.send_rpc_request(ip, port, "minecraft:serversettings/pause_when_empty_seconds/set", [pause_when_empty_seconds])
+            embed.add_field(inline=False, name="", value=self.parse_rpc_response(resp, success_msg=f"pause_when_empty_seconds set to `{pause_when_empty_seconds}`"))
+            numb_changes += 1
+
+        # Player idle timeout
+        if player_idle_timeout is not None:
+            resp = await self.send_rpc_request(ip, port, "minecraft:serversettings/player_idle_timeout/set", [player_idle_timeout])
+            embed.add_field(inline=False, name="", value=self.parse_rpc_response(resp, success_msg=f"player_idle_timeout set to `{player_idle_timeout}`"))
+            numb_changes += 1
+
+        # Simulation distance
+        if simulation_distance is not None:
+            resp = await self.send_rpc_request(ip, port, "minecraft:serversettings/simulation_distance/set", [simulation_distance])
+            embed.add_field(inline=False, name="", value=self.parse_rpc_response(resp, success_msg=f"simulation_distance set to `{simulation_distance}`"))
+            numb_changes += 1
+
+        # Spawn protection radius
+        if spawn_protection_radius is not None:
+            resp = await self.send_rpc_request(ip, port, "minecraft:serversettings/spawn_protection_radius/set", [spawn_protection_radius])
+            embed.add_field(inline=False, name="", value=self.parse_rpc_response(resp, success_msg=f"spawn_protection_radius set to `{spawn_protection_radius}`"))
+            numb_changes += 1
+
+        # Status heartbeat interval
+        if status_heartbeat_interval is not None:
+            resp = await self.send_rpc_request(ip, port, "minecraft:serversettings/status_heartbeat_interval/set", [status_heartbeat_interval])
+            embed.add_field(inline=False, name="", value=self.parse_rpc_response(resp, success_msg=f"status_heartbeat_interval set to `{status_heartbeat_interval}`"))
+            numb_changes += 1
+
+        # Status replies
+        if status_replies is not None:
+            resp = await self.send_rpc_request(ip, port, "minecraft:serversettings/status_replies/set", [status_replies])
+            embed.add_field(inline=False, name="", value=self.parse_rpc_response(resp, success_msg=f"status_replies set to `{status_replies}`"))
+            numb_changes += 1
+
+        # Use allowlist
+        if use_allowlist is not None:
+            resp = await self.send_rpc_request(ip, port, "minecraft:serversettings/use_allowlist/set", [use_allowlist])
+            embed.add_field(inline=False, name="", value=self.parse_rpc_response(resp, success_msg=f"use_allowlist set to `{use_allowlist}`"))
+            numb_changes += 1
+
+        # View distance
+        if viewdistance is not None:
+            resp = await self.send_rpc_request(ip, port, "minecraft:serversettings/view_distance/set", [viewdistance])
+            embed.add_field(inline=False, name="", value=self.parse_rpc_response(resp, success_msg=f"viewdistance set to `{viewdistance}`"))
+            numb_changes += 1
+
+        # Entity broadcast range
+        if entity_broadcast_range is not None:
+            resp = await self.send_rpc_request(ip, port, "minecraft:serversettings/entity_broadcast_range/set", [entity_broadcast_range])
+            embed.add_field(inline=False, name="", value=self.parse_rpc_response(resp, success_msg=f"entity_broadcast_range set to `{entity_broadcast_range}`"))
+            numb_changes += 1
+
+        if numb_changes == 0:
+            embed.add_field(inline=False, name="No changes, wtf?",value="")
+            await ctx.send(embed=embed)
+            return
+        embed.set_footer(text=f"Number of changes : {numb_changes}")
+        await ctx.send(embed=embed)
+    """
+    '''
+    # Example server setting: autosave toggle
+    @mc.command(name="autosave", description="Enable or disable autosave")
+    @app_commands.autocomplete(name=mc_serv_name_autocomplete)
+    async def autosave(self, ctx, enable: bool, name: Optional[str] = None):
+        server = await self.resolve_server(ctx, name)
+        if not server:
+            return
+        ip, port, name = server
+        resp = await self.send_rpc_request(ip, port, "minecraft:serversettings/autosave/set", [enable])
+        await ctx.send(f"💾 Autosave {'enabled' if enable else 'disabled'}: {resp}")
+
+    # Example server setting: max players
+    @mc.command(name="maxplayers", description="Change maximum number of players")
+    @app_commands.autocomplete(name=mc_serv_name_autocomplete)
+    async def maxplayers(self, ctx, max_players: int, name: Optional[str] = None):
+        server = await self.resolve_server(ctx, name)
+        if not server:
+            return
+        ip, port, name = server
+        resp = await self.send_rpc_request(ip, port,"minecraft:serversettings/max_players/set",[max_players])
+        await ctx.send(self.parse_rpc_response(resp, success_msg=f"👥 Max players set to {max_players}"))
+
+    # Example server setting: view distance
+    @mc.command(name="viewdistance", description="Change view distance in chunks")
+    @app_commands.autocomplete(name=mc_serv_name_autocomplete)
+    async def viewdistance(self, ctx, distance: int, name: Optional[str] = None):
+        server = await self.resolve_server(ctx, name)
+        if not server:
+            return
+        ip, port, name = server
+        resp = await self.send_rpc_request(ip, port, "minecraft:serversettings/view_distance/set", [distance])
+        await ctx.send(f"🌐 View distance set to `{distance}`: {resp}")
+
+
 
     # Change MOTD
     @mc.command(name="motd", description="Change the server's MOTD")
@@ -516,13 +855,7 @@ class MinecraftManager(commands.Cog, name="minecraft_v2"):
         resp = await self.send_rpc_request(ip, port, "minecraft:serversettings/motd/set", [motd])
         await ctx.send(self.parse_rpc_response(resp, success_msg=f"MOTD changed to `{motd}`"))
 
-        '''
-        resp = await self.send_rpc_request(ip, port, "minecraft:serversettings/motd/set", [motd])
-        if "result" in resp:
-            await ctx.send(f"✅ MOTD changed: `{motd}`")
-        else:
-            await ctx.send(f"⚠️ Error: `{resp}`")
-        '''
+    
     # Change difficulty
     @mc.command(name="difficulty", description="Set the server difficulty")
     @app_commands.autocomplete(name=mc_serv_name_autocomplete)
@@ -544,7 +877,7 @@ class MinecraftManager(commands.Cog, name="minecraft_v2"):
         ip, port, name = server
         resp = await self.send_rpc_request(ip, port, "minecraft:serversettings/game_mode/set", [mode])
         await ctx.send(f"🎮 Gamemode: `{mode}` -> `{resp}`")
-
+    '''
     # Kick player
     @mc.command(name="kick", description="Kick a player from the server")
     @app_commands.autocomplete(name=mc_serv_name_autocomplete)
@@ -717,6 +1050,8 @@ class MinecraftManager(commands.Cog, name="minecraft_v2"):
         await ctx.send(embed=embed)
 
 
+    #To keep
+    '''
     @mc.command(name="set_gamerule", description="Set a gamerule")
     @app_commands.autocomplete(name=mc_serv_name_autocomplete)
     async def set_gamerule(self, ctx, key: str, value: str, name: Optional[str] = None):
@@ -726,43 +1061,127 @@ class MinecraftManager(commands.Cog, name="minecraft_v2"):
         ip, port, name = server
         rule = {"key": key, "value": value}
         resp = await self.send_rpc_request(ip, port, "minecraft:gamerules/update", [rule])
-        await ctx.send(f"🛠️ Gamerule `{key}` set to `{value}`: {resp}")
-
-    # Example server setting: autosave toggle
-    @mc.command(name="autosave", description="Enable or disable autosave")
-    @app_commands.autocomplete(name=mc_serv_name_autocomplete)
-    async def autosave(self, ctx, enable: bool, name: Optional[str] = None):
-        server = await self.resolve_server(ctx, name)
-        if not server:
-            return
-        ip, port, name = server
-        resp = await self.send_rpc_request(ip, port, "minecraft:serversettings/autosave/set", [enable])
-        await ctx.send(f"💾 Autosave {'enabled' if enable else 'disabled'}: {resp}")
-
-    # Example server setting: max players
-    @mc.command(name="maxplayers", description="Change maximum number of players")
-    @app_commands.autocomplete(name=mc_serv_name_autocomplete)
-    async def maxplayers(self, ctx, max_players: int, name: Optional[str] = None):
-        server = await self.resolve_server(ctx, name)
-        if not server:
-            return
-        ip, port, name = server
-        resp = await self.send_rpc_request(ip, port,"minecraft:serversettings/max_players/set",[max_players])
         await ctx.send(self.parse_rpc_response(resp, success_msg=f"👥 Max players set to {max_players}"))
+        await ctx.send(f"🛠️ Gamerule `{key}` set to `{value}`: {resp}")
+    '''
 
-    # Example server setting: view distance
-    @mc.command(name="viewdistance", description="Change view distance in chunks")
+
+    @mc.command(name="set_gamerule", description="Set a gamerule")
+    @app_commands.describe(
+        list1="Gamerule's name (A–T)",
+        list2="Gamerule's name (U–M)",
+        list3="Gamerule's name (N–Z)",
+        value="New value",
+        name="Nom du serveur (Optional)"
+    )
     @app_commands.autocomplete(name=mc_serv_name_autocomplete)
-    async def viewdistance(self, ctx, distance: int, name: Optional[str] = None):
+    async def set_gamerule(
+        self,
+        ctx,
+        list1: Optional[Literal[
+            "allowEnteringNetherUsingPortals",
+            "allowFireTicksAwayFromPlayer",
+            "announceAdvancements",
+            "blockExplosionDropDecay",
+            "commandBlockOutput",
+            "commandModificationBlockLimit",
+            "disableElytraMovementCheck",
+            "disablePlayerMovementCheck",
+            "disableRaids",
+            "doDaylightCycle",
+            "doEntityDrops",
+            "doFireTick",
+            "doImmediateRespawn",
+            "doInsomnia",
+            "doLimitedCrafting",
+            "doMobLoot",
+            "doMobSpawning",
+            "doPatrolSpawning",
+            "doTileDrops"
+        ]] = None,
+        list2: Optional[Literal[
+            "doTraderSpawning",
+            "doVinesSpread",
+            "doWardenSpawning",
+            "doWeatherCycle",
+            "drowningDamage",
+            "enableCommandBlocks",
+            "enderPearlsVanishOnDeath",
+            "fallDamage",
+            "fireDamage",
+            "forgiveDeadPlayers",
+            "freezeDamage",                                                     
+            "globalSoundEvents",
+            "keepInventory",
+            "lavaSourceConversion",
+            "locatorBar",
+            "logAdminCommands",
+            "maxCommandChainLength",
+            "maxCommandForkCount",
+            "maxEntityCramming"
+        ]] = None,
+        list3: Optional[Literal[
+            "mobExplosionDropDecay",
+            "mobGriefing",
+            "naturalRegeneration",
+            "playersNetherPortalCreativeDelay",
+            "playersNetherPortalDefaultDelay",
+            "playersSleepingPercentage",
+            "projectilesCanBreakBlocks",
+            "pvp",
+            "randomTickSpeed",
+            "reducedDebugInfo",
+            "sendCommandFeedback",
+            "showDeathMessages",
+            "snowAccumulationHeight",
+            "spawnMonsters",
+            "spawnRadius",
+            "spectatorsGenerateChunks",
+            "tntExplodes",
+            "tntExplosionDropDecay",
+            "universalAnger",
+            "waterSourceConversion"
+        ]] = None,
+        value: str = "",
+        name: Optional[str] = None
+    ):
+        embed = discord.Embed(title="Set Gamerule", color=0x57F287)
+
+        # Check qu’un seul gamerule est choisi
+        chosen = [x for x in (list1, list2, list3) if x]
+        if len(chosen) != 1:
+            embed.add_field(
+                name="Error",
+                value="⚠️ Please select exactly **one** gamerule (not zero, not multiple)."
+            )
+            embed.color = discord.Color.red()
+            await ctx.send(embed=embed)
+            return
+
+        key = chosen[0]
+
+        # Résolution serveur
         server = await self.resolve_server(ctx, name)
         if not server:
             return
-        ip, port, name = server
-        resp = await self.send_rpc_request(ip, port, "minecraft:serversettings/view_distance/set", [distance])
-        await ctx.send(f"🌐 View distance set to `{distance}`: {resp}")
+        ip, port, srv_name = server
+
+        rule = {"key": key, "value": value}
+        resp = await self.send_rpc_request(ip, port, "minecraft:gamerules/update", [rule])
+
+        # Handle response gracefully
+        if resp and "result" in resp:
+            embed.description = f"🛠️ Gamerule `{key}` set to `{value}` on `{srv_name}`."
+        else:
+            embed.color = discord.Color.red()
+            embed.description = f"❌ Failed to set gamerule `{key}`: `{resp}`"
+
+        await ctx.send(embed=embed)
+        print(self.parse_rpc_response(resp, success_msg=f"👥 Max players set to {rule}"))
 
 
-    @mc_config.command(name="status_full", description="Show complete server status and info")
+
+    @mc.command(name="status_full", description="Show complete server status and info")
     @app_commands.autocomplete(name=mc_serv_name_autocomplete)
     async def status_full(self, ctx: commands.Context, name: Optional[str] = None):
         server = await self.resolve_server(ctx, name)
